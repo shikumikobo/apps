@@ -15,16 +15,17 @@
   </style>
 </head>
 <body>
-  <!-- 05 現場の写真と書類：写真を送る画面（1-20 の試作）。処理は GAS の photo（05_site-photos/src/photo.js）。 -->
+  <!-- 05 現場の写真と書類：写真を送る画面（1-20 の試作）。処理は GAS の photo（05_site-photos/src/photo.js）。
+       送った写真を見る画面は list.html（現場を選んだまま行き来する）。 -->
   <main>
-    <h1>写真を送る</h1>
+    <div class="nav"><h1>写真を送る</h1><a id="toList" href="#">送った写真を見る</a></div>
     <label for="who">あなたの名前</label>
     <input id="who" autocomplete="name" placeholder="大川">
     <label for="site">現場</label>
     <select id="site"><option value="">読んでいます…</option></select>
     <label for="file">写真（20枚まで）</label>
     <input id="file" type="file" accept="image/*" multiple>
-    <p id="picked" class="note">写真は長い辺を 1600 ピクセルに縮めて送ります。</p>
+    <p id="picked" class="note">写真は長い辺を 1600 ピクセルに縮めて送ります。前に送った写真と同じものは、送らずに飛ばします。</p>
     <button id="send">送る</button>
     <progress id="bar" max="1" value="0" hidden></progress>
     <p id="out" class="msg" hidden></p>
@@ -36,18 +37,29 @@
       // GAS の同時の実行の上限（1人30）と、スマホの電波を考えて3まで）
       const MAX_FILES = 20;
       const PARALLEL = 3;
+      const NOTE = '写真は長い辺を 1600 ピクセルに縮めて送ります。前に送った写真と同じものは、送らずに飛ばします。';
       const site = document.getElementById('site');
       const btn = document.getElementById('send');
       const fileInput = document.getElementById('file');
       const bar = document.getElementById('bar');
       const fails = document.getElementById('fails');
+      const toList = document.getElementById('toList');
       if (!WebApp.ready()) return;
       WebApp.remember('who');
+
+      function updateLink() {
+        toList.href = WebApp.link('list.html', { site: site.value });
+      }
+      site.addEventListener('change', updateLink);
+      updateLink();
 
       WebApp.call('photo', 'sites').then(function (list) {
         site.innerHTML = '';
         site.add(new Option('選んでください', ''));
         list.forEach(function (s) { site.add(new Option(s.id + ' ' + s.name, s.id)); });
+        const want = WebApp.param('site'); // 確かめる画面から来たときは、その現場を選んでおく
+        if (want && list.some(function (s) { return s.id === want; })) site.value = want;
+        updateLink();
       }).catch(function (e) {
         site.innerHTML = '';
         site.add(new Option('読めませんでした', ''));
@@ -58,7 +70,7 @@
         const n = fileInput.files.length;
         document.getElementById('picked').textContent = n > MAX_FILES
           ? n + '枚選んでいます。1回に送れるのは ' + MAX_FILES + '枚までです。選び直してください'
-          : (n ? n + '枚選んでいます。' : '') + '写真は長い辺を 1600 ピクセルに縮めて送ります。';
+          : (n ? n + '枚選んでいます。' : '') + NOTE;
       });
 
       btn.addEventListener('click', function () {
@@ -75,14 +87,18 @@
         sendAll(files, who, site.value);
       });
 
-      /** PARALLEL 枚ずつ並べて送る。1枚が送れなくても、ほかは続ける。 */
+      /**
+       * まず同じ写真の印（SHA-256）を作って、送り済みのものを聞き、それは送らずに飛ばす。
+       * 残りを PARALLEL 枚ずつ並べて送る。1枚が送れなくても、ほかは続ける。
+       */
       function sendAll(files, who, siteId) {
         const total = files.length;
-        const batch = Date.now().toString(36); // この回の写真の名前をそろえる
         const started = Date.now();
         let next = 0;
         let done = 0;
+        const skipped = [];
         const failed = [];
+        let digests = [];
         btn.disabled = true;
         fileInput.disabled = true;
         fails.hidden = true;
@@ -90,12 +106,14 @@
         bar.hidden = false;
         bar.max = total;
         bar.value = 0;
-        progress();
+        WebApp.show('送り済みの写真がないか、確かめています…');
 
-        /** 「3/10枚目を送っています…」：送り終わった枚数＋1 枚目（いくつか並べて送っているが、終わる順に数える）。 */
+        /** 「3/10枚目を送っています…」：終わった枚数＋1 枚目（いくつか並べて送っているが、終わる順に数える）。 */
         function progress() {
-          const finished = done + failed.length;
+          const finished = done + skipped.length + failed.length;
+          bar.value = finished;
           WebApp.show(Math.min(finished + 1, total) + '/' + total + '枚目を送っています…' +
+            (skipped.length ? '（送り済みで飛ばした ' + skipped.length + '枚）' : '') +
             (failed.length ? '（送れなかった ' + failed.length + '枚）' : ''));
         }
 
@@ -103,39 +121,51 @@
           if (next >= total) return Promise.resolve();
           const i = next++;
           const file = files[i];
+          if (digests[i] && sentBefore[digests[i]]) {
+            skipped.push({ name: file.name, reason: sentBefore[digests[i]] });
+            progress();
+            return one();
+          }
           progress();
-          return WebApp.shrinkImage(file, 1600).then(function (data) {
+          return WebApp.shrinkImage(file, [1600, 240]).then(function (data) {
             return WebApp.call('photo', 'upload', {
-              siteId: siteId, who: who, name: file.name, data: data, batch: batch, index: i + 1, total: total,
+              siteId: siteId, who: who, name: file.name, data: data[0], thumb: data[1], digest: digests[i], index: i + 1, total: total,
             });
-          }).then(function () {
-            done++;
+          }).then(function (r) {
+            if (r.skipped) skipped.push({ name: file.name, reason: r.message });
+            else done++;
           }).catch(function (e) {
             failed.push({ name: file.name, reason: e.message });
           }).then(function () {
-            bar.value = done + failed.length;
             progress();
             return one();
           });
         }
 
-        const workers = [];
-        for (let k = 0; k < Math.min(PARALLEL, total); k++) workers.push(one());
-        Promise.all(workers).then(function () {
+        let sentBefore = {};
+        Promise.all(files.map(WebApp.digest)).then(function (list) {
+          digests = list;
+          return WebApp.call('photo', 'check', { digests: list.filter(Boolean) }).catch(function () { return {}; });
+        }).then(function (sent) {
+          sentBefore = sent || {};
+          const workers = [];
+          for (let k = 0; k < Math.min(PARALLEL, total); k++) workers.push(one());
+          return Promise.all(workers);
+        }).then(function () {
           const sec = Math.round((Date.now() - started) / 100) / 10;
+          const parts = [siteId + ' に ' + done + '枚送りました'];
+          if (skipped.length) parts.push('送り済みの ' + skipped.length + '枚は飛ばしました');
+          if (failed.length) parts.push(failed.length + '枚は送れませんでした。その写真だけを選び直して、もう一度送ってください');
+          WebApp.show(parts.join('。') + '（' + sec + '秒）', failed.length > 0);
+          skipped.concat(failed).forEach(function (f) {
+            const li = document.createElement('li');
+            li.textContent = f.name + '：' + f.reason;
+            fails.appendChild(li);
+          });
+          fails.hidden = !(skipped.length || failed.length);
           if (!failed.length) {
-            WebApp.show(siteId + ' に ' + done + '枚送りました（' + sec + '秒）');
             fileInput.value = '';
-            document.getElementById('picked').textContent = '写真は長い辺を 1600 ピクセルに縮めて送ります。';
-          } else {
-            WebApp.show(done + '枚送りました。' + failed.length + '枚は送れませんでした（' + sec + '秒）。' +
-              '送れなかった写真だけを選び直して、もう一度送ってください', true);
-            failed.forEach(function (f) {
-              const li = document.createElement('li');
-              li.textContent = f.name + '：' + f.reason;
-              fails.appendChild(li);
-            });
-            fails.hidden = false;
+            document.getElementById('picked').textContent = NOTE;
           }
           btn.disabled = false;
           fileInput.disabled = false;

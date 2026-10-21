@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <!-- URL の合言葉を、ほかのサイトへ渡さない -->
+  <meta name="referrer" content="no-referrer">
+  <title>送った写真</title>
+  <link rel="stylesheet" href="../shared/webapp.css">
+  <script src="../shared/webapp.js"></script>
+  <style>
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-top: 16px; }
+    figure { margin: 0; background: #fff; border: 1px solid #c9cec3; border-radius: 10px; overflow: hidden; }
+    figure img, figure .noimg { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: #e4e7df; }
+    figure .noimg { display: flex; align-items: center; justify-content: center; font-size: 13px; color: #5d6458; }
+    figcaption { padding: 6px 8px; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+    figcaption b { display: block; font-size: 14px; }
+    #count { margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <!-- 05 現場の写真と書類：送った写真を見る画面。処理は GAS の photo の list（05_site-photos/src/photo.js）。
+       写真を送る画面は photo.html（現場を選んだまま行き来する）。 -->
+  <main>
+    <div class="nav"><h1>送った写真</h1><a id="toSend" href="#">写真を送る</a></div>
+    <label for="site">現場</label>
+    <select id="site"><option value="">読んでいます…</option></select>
+    <p id="count" class="note" hidden></p>
+    <div id="grid" class="grid"></div>
+    <button id="more" hidden>もっと見る</button>
+    <p id="out" class="msg" hidden></p>
+  </main>
+  <script>
+    (function () {
+      const site = document.getElementById('site');
+      const grid = document.getElementById('grid');
+      const more = document.getElementById('more');
+      const count = document.getElementById('count');
+      const toSend = document.getElementById('toSend');
+      let shown = 0;
+      let loading = 0; // 現場を選び直したら、前の読み込みの結果は捨てる
+      if (!WebApp.ready()) return;
+
+      function updateLink() {
+        toSend.href = WebApp.link('photo.html', { site: site.value });
+      }
+
+      WebApp.call('photo', 'sites').then(function (list) {
+        site.innerHTML = '';
+        site.add(new Option('選んでください', ''));
+        list.forEach(function (s) { site.add(new Option(s.id + ' ' + s.name, s.id)); });
+        const want = WebApp.param('site'); // 送る画面から来たときは、その現場を出す
+        if (want && list.some(function (s) { return s.id === want; })) {
+          site.value = want;
+          reload();
+        }
+        updateLink();
+      }).catch(function (e) {
+        site.innerHTML = '';
+        site.add(new Option('読めませんでした', ''));
+        WebApp.show(e.message, true);
+      });
+
+      site.addEventListener('change', function () {
+        updateLink();
+        reload();
+      });
+      more.addEventListener('click', function () { load(loading); });
+
+      function reload() {
+        loading++;
+        shown = 0;
+        grid.innerHTML = '';
+        count.hidden = true;
+        more.hidden = true;
+        document.getElementById('out').hidden = true;
+        if (site.value) load(loading);
+      }
+
+      function load(ticket) {
+        more.disabled = true;
+        WebApp.show('読んでいます…');
+        WebApp.call('photo', 'list', { siteId: site.value, offset: shown }).then(function (r) {
+          if (ticket !== loading) return;
+          r.items.forEach(function (it) { grid.appendChild(card(it)); });
+          shown += r.items.length;
+          count.textContent = r.site.id + ' ' + r.site.name + '：' + r.total + '枚（新しい順。' + shown + '枚を出しています）';
+          count.hidden = false;
+          more.hidden = shown >= r.total;
+          more.disabled = false;
+          if (r.total) document.getElementById('out').hidden = true;
+          else WebApp.show('この現場には、まだ写真がありません');
+        }).catch(function (e) {
+          if (ticket !== loading) return;
+          more.disabled = false;
+          WebApp.show(e.message, true);
+        });
+      }
+
+      function card(it) {
+        const fig = document.createElement('figure');
+        if (it.thumb) {
+          const img = document.createElement('img');
+          img.alt = it.original || it.fileName;
+          img.src = 'data:image/jpeg;base64,' + it.thumb;
+          fig.appendChild(img);
+        } else {
+          const none = document.createElement('div');
+          none.className = 'noimg';
+          none.textContent = '小さい画像なし';
+          fig.appendChild(none);
+        }
+        const cap = document.createElement('figcaption');
+        const at = document.createElement('b');
+        at.textContent = it.at;
+        cap.appendChild(at);
+        cap.appendChild(document.createTextNode(it.who + '・' + (it.original || it.fileName)));
+        fig.appendChild(cap);
+        return fig;
+      }
+    })();
+  </script>
+</body>
+</html>

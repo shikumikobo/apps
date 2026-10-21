@@ -8,6 +8,10 @@
 //   WebApp.ready() … URL が正しいか（正しくなければ画面に理由を出して false）
 //   WebApp.call('photo', 'sites', payload) … 処理を呼ぶ（Promise。失敗は Error の message に画面に出す言葉）
 //   WebApp.shrinkImage(file, 1600) … 写真の長い辺を縮め、JPEG の base64 にする（Promise）
+//   WebApp.shrinkImage(file, [1600, 240]) … 大きさを並べると、それぞれの base64 を並べて返す（写真を読むのは1回）
+//   WebApp.digest(file) … 元のファイルの SHA-256（同じ写真かを見分ける。Promise）
+//   WebApp.link('list.html', {site: 'S-2611-05'}) … 同じ置き場所の画面への URL（s と k を付ける）
+//   WebApp.param('site') … URL の値
 //   WebApp.remember('who') … 入力の値をこの端末に覚える（名前など）
 //   WebApp.show(text, isError) … 画面の下の知らせの欄（id="out"）に出す
 
@@ -63,19 +67,26 @@
     });
   }
 
-  /** 写真の長い辺を max ピクセルに縮め、JPEG の base64（data: の後ろ）にする。 */
+  /**
+   * 写真の長い辺を max ピクセルに縮め、JPEG の base64（data: の後ろ）にする。
+   * max に大きさを並べると、それぞれに縮めた base64 を並べて返す（小さいものは画質を下げて軽くする）。
+   */
   function shrinkImage(file, max) {
+    const sizes = Array.isArray(max) ? max : [max];
     return new Promise(function (resolve, reject) {
       const img = new Image();
       const url = URL.createObjectURL(file);
       img.onload = function () {
-        const s = Math.min(1, max / Math.max(img.width, img.height));
-        const c = document.createElement('canvas');
-        c.width = Math.round(img.width * s);
-        c.height = Math.round(img.height * s);
-        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        const out = sizes.map(function (size) {
+          const s = Math.min(1, size / Math.max(img.width, img.height));
+          const c = document.createElement('canvas');
+          c.width = Math.round(img.width * s);
+          c.height = Math.round(img.height * s);
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          return c.toDataURL('image/jpeg', size <= 400 ? 0.7 : 0.85).split(',')[1];
+        });
         URL.revokeObjectURL(url);
-        resolve(c.toDataURL('image/jpeg', 0.85).split(',')[1]);
+        resolve(Array.isArray(max) ? out : out[0]);
       };
       img.onerror = function () {
         URL.revokeObjectURL(url);
@@ -83,6 +94,27 @@
       };
       img.src = url;
     });
+  }
+
+  /** 元のファイルの SHA-256（16進の64文字）。計算できないブラウザでは空（同じ写真を見分けない）。 */
+  function digest(file) {
+    if (!(window.crypto && crypto.subtle && file.arrayBuffer)) return Promise.resolve('');
+    return file.arrayBuffer().then(function (buf) {
+      return crypto.subtle.digest('SHA-256', buf);
+    }).then(function (hash) {
+      return Array.from(new Uint8Array(hash)).map(function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+    }).catch(function () { return ''; });
+  }
+
+  /** 同じ置き場所の、ほかの画面への URL（受け口と合言葉を付ける）。 */
+  function link(page, extra) {
+    const q = new URLSearchParams({ s: deploymentId, k: key });
+    Object.keys(extra || {}).forEach(function (name) { if (extra[name]) q.set(name, extra[name]); });
+    return page + '?' + q.toString();
+  }
+
+  function param(name) {
+    return params.get(name) || '';
   }
 
   /** 入力の値をこの端末に覚える（次に開いたときに入っている）。 */
@@ -97,5 +129,7 @@
     }
   }
 
-  window.WebApp = { ready: ready, call: call, shrinkImage: shrinkImage, remember: remember, show: show };
+  window.WebApp = {
+    ready: ready, call: call, shrinkImage: shrinkImage, digest: digest, link: link, param: param, remember: remember, show: show,
+  };
 })();

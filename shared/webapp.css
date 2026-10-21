@@ -9,3 +9,5 @@ button:disabled { background: #9bb08f; }
 .msg { padding: 12px; border-radius: 10px; background: #e7f1e1; margin-top: 16px; }
 .msg.err { background: #fbe3e1; }
 .note { font-size: 14px; color: #5d6458; }
+.nav { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.nav a { font-size: 15px; color: #2f63b8; white-space: nowrap; }
