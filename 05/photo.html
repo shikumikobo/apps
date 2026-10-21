@@ -32,9 +32,10 @@
   </main>
   <script>
     (function () {
-      // 1回に送れる枚数（hearing.md の 5-1）。2枚ずつ並べて送る（GAS の同時の実行の上限と、スマホの電波を考えて）
+      // 1回に送れる枚数（hearing.md の 5-1）。3枚ずつ並べて送る（1枚ずつだと1枚5秒ほどかかる。
+      // GAS の同時の実行の上限（1人30）と、スマホの電波を考えて3まで）
       const MAX_FILES = 20;
-      const PARALLEL = 2;
+      const PARALLEL = 3;
       const site = document.getElementById('site');
       const btn = document.getElementById('send');
       const fileInput = document.getElementById('file');
@@ -74,7 +75,7 @@
         sendAll(files, who, site.value);
       });
 
-      /** 2枚ずつ並べて送る。1枚が送れなくても、ほかは続ける。 */
+      /** PARALLEL 枚ずつ並べて送る。1枚が送れなくても、ほかは続ける。 */
       function sendAll(files, who, siteId) {
         const total = files.length;
         const batch = Date.now().toString(36); // この回の写真の名前をそろえる
@@ -91,10 +92,11 @@
         bar.value = 0;
         progress();
 
+        /** 「3/10枚目を送っています…」：送り終わった枚数＋1 枚目（いくつか並べて送っているが、終わる順に数える）。 */
         function progress() {
-          const sending = Math.min(next, total);
-          WebApp.show(sending + '/' + total + '枚目を送っています…（送り終わり ' + done + '枚' +
-            (failed.length ? '・送れなかった ' + failed.length + '枚' : '') + '）');
+          const finished = done + failed.length;
+          WebApp.show(Math.min(finished + 1, total) + '/' + total + '枚目を送っています…' +
+            (failed.length ? '（送れなかった ' + failed.length + '枚）' : ''));
         }
 
         function one() {
