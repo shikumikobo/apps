@@ -153,8 +153,9 @@
           return Promise.all(workers);
         }).then(function () {
           const sec = Math.round((Date.now() - started) / 100) / 10;
-          const parts = [siteId + ' に ' + done + '枚送りました'];
-          if (skipped.length) parts.push('送り済みの ' + skipped.length + '枚は飛ばしました');
+          const parts = [];
+          if (done || !skipped.length) parts.push(siteId + ' に ' + done + '枚送りました');
+          if (skipped.length) parts.push(done ? '送り済みの ' + skipped.length + '枚は飛ばしました' : '選んだ ' + skipped.length + '枚は、すべて送り済みでした（送っていません）');
           if (failed.length) parts.push(failed.length + '枚は送れませんでした。その写真だけを選び直して、もう一度送ってください');
           WebApp.show(parts.join('。') + '（' + sec + '秒）', failed.length > 0);
           skipped.concat(failed).forEach(function (f) {

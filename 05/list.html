@@ -46,15 +46,20 @@
         toSend.href = WebApp.link('photo.html', { site: site.value });
       }
 
+      // 送る画面から来たときは、現場の一覧を待たずに、その現場の写真を読み始める（1回の呼び出しに数秒かかるため）
+      const want = WebApp.param('site');
+      if (want) {
+        site.innerHTML = '';
+        site.add(new Option(want, want));
+        site.value = want;
+        reload();
+        updateLink();
+      }
       WebApp.call('photo', 'sites').then(function (list) {
         site.innerHTML = '';
         site.add(new Option('選んでください', ''));
         list.forEach(function (s) { site.add(new Option(s.id + ' ' + s.name, s.id)); });
-        const want = WebApp.param('site'); // 送る画面から来たときは、その現場を出す
-        if (want && list.some(function (s) { return s.id === want; })) {
-          site.value = want;
-          reload();
-        }
+        if (want && list.some(function (s) { return s.id === want; })) site.value = want;
         updateLink();
       }).catch(function (e) {
         site.innerHTML = '';
