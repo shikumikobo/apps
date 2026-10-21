@@ -54,7 +54,7 @@
       const PARALLEL = 3;
       const MAX_PDF = 5 * 1024 * 1024; // PDF は縮めずに送るので、GAS の上限（photo.js の PHOTO_MAX_BYTES）と同じ
       const DOC = '書類';
-      const NOTE = '写真は長い辺を 1600 ピクセルに縮めて送ります。前に送った写真と同じものは、送らずに飛ばします。PDF は区分「書類」で送れます。';
+      const NOTE = '写真は長い辺を 1600 ピクセルに縮めて送ります。同じ現場に前に送った写真と同じものは、送らずに飛ばします。PDF は区分「書類」で送れます。';
       const site = document.getElementById('site');
       const day = document.getElementById('day');
       const cats = document.getElementById('cats');
@@ -168,7 +168,7 @@
       }
 
       /**
-       * まず同じ写真の印（SHA-256）を作って、送り済みのものを聞き、それは送らずに飛ばす。
+       * まず同じ写真の印（SHA-256）を作って、選んだ現場に送り済みのものを聞き、それは送らずに飛ばす（ほかの現場には送れる）。
        * 残りを PARALLEL 枚ずつ並べて送る。1枚が送れなくても、ほかは続ける。
        */
       function sendAll(files, form) {
@@ -226,7 +226,7 @@
         let sentBefore = {};
         Promise.all(files.map(WebApp.digest)).then(function (list) {
           digests = list;
-          return WebApp.call('photo', 'check', { digests: list.filter(Boolean) }).catch(function () { return {}; });
+          return WebApp.call('photo', 'check', { siteId: form.siteId, digests: list.filter(Boolean) }).catch(function () { return {}; });
         }).then(function (sent) {
           sentBefore = sent || {};
           const workers = [];
