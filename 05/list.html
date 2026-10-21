@@ -10,36 +10,45 @@
   <link rel="stylesheet" href="../shared/webapp.css">
   <script src="../shared/webapp.js"></script>
   <style>
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-top: 16px; }
+    h2 { font-size: 17px; margin: 20px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #c9cec3; }
+    h2 small { font-weight: normal; color: #5d6458; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
     figure { margin: 0; background: #fff; border: 1px solid #c9cec3; border-radius: 10px; overflow: hidden; }
+    figure.on { border: 3px solid #4f8a3a; }
     figure img, figure .noimg { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: #e4e7df; }
-    figure .noimg { display: flex; align-items: center; justify-content: center; font-size: 13px; color: #5d6458; }
+    figure .noimg { display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: bold; color: #5d6458; }
     figcaption { padding: 6px 8px; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
-    figcaption b { display: block; font-size: 14px; }
+    figcaption b { display: inline-block; font-size: 13px; padding: 0 6px; border-radius: 6px; background: #e7f1e1; margin-right: 4px; }
+    figcaption .memo { display: block; color: #22261f; margin-top: 2px; }
+    .pick { display: flex; align-items: center; gap: 6px; margin: 0; padding: 6px 8px; font-size: 14px; font-weight: normal; border-top: 1px solid #e4e7df; }
+    .pick input { width: 20px; height: 20px; margin: 0; padding: 0; }
     #count { margin-top: 12px; }
   </style>
 </head>
 <body>
-  <!-- 05 現場の写真と書類：送った写真を見る画面。処理は GAS の photo の list（05_site-photos/src/photo.js）。
+  <!-- 05 現場の写真と書類：送った写真を見る画面。処理は GAS の photo の list・mark（05_site-photos/src/photo.js）。
+       作業日ごとに見出しを付けて並べる。「レポートに使う」の印は、台帳の「写真」の同じ名前の列に入る。
        写真を送る画面は photo.html（現場を選んだまま行き来する）。 -->
   <main>
     <div class="nav"><h1>送った写真</h1><a id="toSend" href="#">写真を送る</a></div>
     <label for="site">現場</label>
     <select id="site"><option value="">読んでいます…</option></select>
     <p id="count" class="note" hidden></p>
-    <div id="grid" class="grid"></div>
+    <div id="list"></div>
     <button id="more" hidden>もっと見る</button>
     <p id="out" class="msg" hidden></p>
   </main>
   <script>
     (function () {
       const site = document.getElementById('site');
-      const grid = document.getElementById('grid');
+      const list = document.getElementById('list');
       const more = document.getElementById('more');
       const count = document.getElementById('count');
       const toSend = document.getElementById('toSend');
       let shown = 0;
       let loading = 0; // 現場を選び直したら、前の読み込みの結果は捨てる
+      let lastDay = ''; // 前に出した写真の作業日（同じ日なら同じ見出しの下に続ける）
+      let grid = null;
       if (!WebApp.ready()) return;
 
       function updateLink() {
@@ -55,11 +64,11 @@
         reload();
         updateLink();
       }
-      WebApp.call('photo', 'sites').then(function (list) {
+      WebApp.call('photo', 'sites').then(function (r) {
         site.innerHTML = '';
         site.add(new Option('選んでください', ''));
-        list.forEach(function (s) { site.add(new Option(s.id + ' ' + s.name, s.id)); });
-        if (want && list.some(function (s) { return s.id === want; })) site.value = want;
+        r.sites.forEach(function (s) { site.add(new Option(s.id + ' ' + s.name + (s.periodic ? '（定期）' : ''), s.id)); });
+        if (want && r.sites.some(function (s) { return s.id === want; })) site.value = want;
         updateLink();
       }).catch(function (e) {
         site.innerHTML = '';
@@ -76,7 +85,9 @@
       function reload() {
         loading++;
         shown = 0;
-        grid.innerHTML = '';
+        lastDay = '';
+        grid = null;
+        list.innerHTML = '';
         count.hidden = true;
         more.hidden = true;
         document.getElementById('out').hidden = true;
@@ -88,9 +99,26 @@
         WebApp.show('読んでいます…');
         WebApp.call('photo', 'list', { siteId: site.value, offset: shown }).then(function (r) {
           if (ticket !== loading) return;
-          r.items.forEach(function (it) { grid.appendChild(card(it)); });
+          r.items.forEach(function (it) {
+            if (it.workDate !== lastDay) {
+              const h = document.createElement('h2');
+              h.textContent = it.workDate + ' ';
+              if (it.round) {
+                const small = document.createElement('small');
+                small.textContent = it.round;
+                h.appendChild(small);
+              }
+              list.appendChild(h);
+              grid = document.createElement('div');
+              grid.className = 'grid';
+              list.appendChild(grid);
+              lastDay = it.workDate;
+            }
+            grid.appendChild(card(it));
+          });
           shown += r.items.length;
-          count.textContent = r.site.id + ' ' + r.site.name + '：' + r.total + '枚（新しい順。' + shown + '枚を出しています）';
+          count.textContent = r.site.id + ' ' + r.site.name + '：' + r.total + '枚（作業日の新しい順。' + shown + '枚を出しています）。' +
+            'レポートに使う写真に印を付けると、レポートには印の写真だけが入ります';
           count.hidden = false;
           more.hidden = shown >= r.total;
           more.disabled = false;
@@ -113,16 +141,47 @@
         } else {
           const none = document.createElement('div');
           none.className = 'noimg';
-          none.textContent = '小さい画像なし';
+          none.textContent = it.pdf ? 'PDF' : '小さい画像なし';
           fig.appendChild(none);
         }
         const cap = document.createElement('figcaption');
-        const at = document.createElement('b');
-        at.textContent = it.at;
-        cap.appendChild(at);
+        const cat = document.createElement('b');
+        cat.textContent = it.category;
+        cap.appendChild(cat);
         cap.appendChild(document.createTextNode(it.who + '・' + (it.original || it.fileName)));
+        if (it.memo) {
+          const memo = document.createElement('span');
+          memo.className = 'memo';
+          memo.textContent = it.memo;
+          cap.appendChild(memo);
+        }
         fig.appendChild(cap);
+        if (!it.pdf) fig.appendChild(pick(it, fig));
         return fig;
+      }
+
+      /** 「レポートに使う」の印。押したらすぐ台帳に書く（書けなければ元に戻す）。 */
+      function pick(it, fig) {
+        const label = document.createElement('label');
+        label.className = 'pick';
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.checked = it.report;
+        fig.classList.toggle('on', it.report);
+        box.addEventListener('change', function () {
+          const want = box.checked;
+          box.disabled = true;
+          WebApp.call('photo', 'mark', { photoId: it.id, report: want }).then(function (r) {
+            box.checked = r.report;
+            fig.classList.toggle('on', r.report);
+          }).catch(function (e) {
+            box.checked = !want;
+            WebApp.show(e.message, true);
+          }).then(function () { box.disabled = false; });
+        });
+        label.appendChild(box);
+        label.appendChild(document.createTextNode('レポートに使う'));
+        return label;
       }
     })();
   </script>

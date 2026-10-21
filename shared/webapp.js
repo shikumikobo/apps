@@ -10,6 +10,7 @@
 //   WebApp.shrinkImage(file, 1600) … 写真の長い辺を縮め、JPEG の base64 にする（Promise）
 //   WebApp.shrinkImage(file, [1600, 240]) … 大きさを並べると、それぞれの base64 を並べて返す（写真を読むのは1回）
 //   WebApp.digest(file) … 元のファイルの SHA-256（同じ写真かを見分ける。Promise）
+//   WebApp.readBase64(file) … ファイルをそのまま base64 にする（PDF など、縮めないもの。Promise）
 //   WebApp.link('list.html', {site: 'S-2611-05'}) … 同じ置き場所の画面への URL（s と k を付ける）
 //   WebApp.param('site') … URL の値
 //   WebApp.remember('who') … 入力の値をこの端末に覚える（名前など）
@@ -106,6 +107,16 @@
     }).catch(function () { return ''; });
   }
 
+  /** ファイルをそのまま base64（data: の後ろ）にする。 */
+  function readBase64(file) {
+    return new Promise(function (resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function () { resolve(String(reader.result).split(',')[1] || ''); };
+      reader.onerror = function () { reject(new Error('ファイルを読めませんでした')); };
+      reader.readAsDataURL(file);
+    });
+  }
+
   /** 同じ置き場所の、ほかの画面への URL（受け口と合言葉を付ける）。 */
   function link(page, extra) {
     const q = new URLSearchParams({ s: deploymentId, k: key });
@@ -130,6 +141,6 @@
   }
 
   window.WebApp = {
-    ready: ready, call: call, shrinkImage: shrinkImage, digest: digest, link: link, param: param, remember: remember, show: show,
+    ready: ready, call: call, shrinkImage: shrinkImage, digest: digest, readBase64: readBase64, link: link, param: param, remember: remember, show: show,
   };
 })();

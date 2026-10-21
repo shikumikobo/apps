@@ -12,20 +12,35 @@
   <style>
     progress { width: 100%; height: 14px; margin-top: 12px; }
     #fails { font-size: 15px; margin: 8px 0 0; padding-left: 20px; }
+    .choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; }
+    .choices label { margin: 0; font-weight: normal; }
+    .choices input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+    .choices span { display: block; text-align: center; padding: 12px 4px; border: 1px solid #c9cec3; border-radius: 10px; background: #fff; }
+    .choices input:checked + span { background: #4f8a3a; border-color: #4f8a3a; color: #fff; font-weight: bold; }
+    .choices input:focus-visible + span { outline: 3px solid #2f63b8; }
+    #kind { margin: 4px 0 0; }
   </style>
 </head>
 <body>
-  <!-- 05 現場の写真と書類：写真を送る画面（1-20 の試作）。処理は GAS の photo（05_site-photos/src/photo.js）。
-       送った写真を見る画面は list.html（現場を選んだまま行き来する）。 -->
+  <!-- 05 現場の写真と書類：写真を送る画面。処理は GAS の photo（05_site-photos/src/photo.js）。
+       送った写真を見る画面は list.html（現場を選んだまま行き来する）。
+       写真は「現場 → 作業日 → 区分」で入る（hearing.md の決めたこと）。区分は台帳の設定「写真の区分」＋書類。 -->
   <main>
     <div class="nav"><h1>写真を送る</h1><a id="toList" href="#">送った写真を見る</a></div>
     <label for="who">あなたの名前</label>
     <input id="who" autocomplete="name" placeholder="大川">
     <label for="site">現場</label>
     <select id="site"><option value="">読んでいます…</option></select>
+    <p id="kind" class="note" hidden></p>
+    <label for="day">作業日（撮った日）</label>
+    <input id="day" type="date">
+    <label>区分</label>
+    <div id="cats" class="choices" role="radiogroup" aria-label="区分"><p class="note">読んでいます…</p></div>
+    <label for="memo">メモ（なくてもよい。レポートの写真の下に出ます）</label>
+    <input id="memo" maxlength="100" placeholder="浴室の入口の段差">
     <label for="file">写真（20枚まで）</label>
-    <input id="file" type="file" accept="image/*" multiple>
-    <p id="picked" class="note">写真は長い辺を 1600 ピクセルに縮めて送ります。前に送った写真と同じものは、送らずに飛ばします。</p>
+    <input id="file" type="file" accept="image/*,application/pdf" multiple>
+    <p id="picked" class="note"></p>
     <button id="send">送る</button>
     <progress id="bar" max="1" value="0" hidden></progress>
     <p id="out" class="msg" hidden></p>
@@ -37,32 +52,71 @@
       // GAS の同時の実行の上限（1人30）と、スマホの電波を考えて3まで）
       const MAX_FILES = 20;
       const PARALLEL = 3;
-      const NOTE = '写真は長い辺を 1600 ピクセルに縮めて送ります。前に送った写真と同じものは、送らずに飛ばします。';
+      const MAX_PDF = 5 * 1024 * 1024; // PDF は縮めずに送るので、GAS の上限（photo.js の PHOTO_MAX_BYTES）と同じ
+      const DOC = '書類';
+      const NOTE = '写真は長い辺を 1600 ピクセルに縮めて送ります。前に送った写真と同じものは、送らずに飛ばします。PDF は区分「書類」で送れます。';
       const site = document.getElementById('site');
+      const day = document.getElementById('day');
+      const cats = document.getElementById('cats');
       const btn = document.getElementById('send');
       const fileInput = document.getElementById('file');
       const bar = document.getElementById('bar');
       const fails = document.getElementById('fails');
       const toList = document.getElementById('toList');
+      const kind = document.getElementById('kind');
+      let sites = [];
+      document.getElementById('picked').textContent = NOTE;
       if (!WebApp.ready()) return;
       WebApp.remember('who');
 
-      function updateLink() {
-        toList.href = WebApp.link('list.html', { site: site.value });
+      function localToday() {
+        const d = new Date();
+        return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
       }
-      site.addEventListener('change', updateLink);
-      updateLink();
+      day.value = day.max = localToday();
 
-      WebApp.call('photo', 'sites').then(function (list) {
+      function updateSite() {
+        toList.href = WebApp.link('list.html', { site: site.value });
+        const s = sites.filter(function (x) { return x.id === site.value; })[0];
+        kind.hidden = !s;
+        if (s) kind.textContent = s.periodic ? '定期の現場（' + (s.frequency || '頻度なし') + '）：毎回、作業日を合わせて「作業前」「作業後」を送ってください'
+          : '単発の現場：追加の直しのときも、その日の作業日で送れば分かれます';
+      }
+      site.addEventListener('change', updateSite);
+      updateSite();
+
+      function category() {
+        const picked = cats.querySelector('input:checked');
+        return picked ? picked.value : '';
+      }
+
+      WebApp.call('photo', 'sites').then(function (r) {
+        sites = r.sites;
         site.innerHTML = '';
         site.add(new Option('選んでください', ''));
-        list.forEach(function (s) { site.add(new Option(s.id + ' ' + s.name, s.id)); });
+        sites.forEach(function (s) {
+          site.add(new Option(s.id + ' ' + s.name + (s.periodic ? '（定期）' : ''), s.id));
+        });
         const want = WebApp.param('site'); // 確かめる画面から来たときは、その現場を選んでおく
-        if (want && list.some(function (s) { return s.id === want; })) site.value = want;
-        updateLink();
+        if (want && sites.some(function (s) { return s.id === want; })) site.value = want;
+        cats.innerHTML = '';
+        r.categories.forEach(function (c) {
+          const label = document.createElement('label');
+          const input = document.createElement('input');
+          input.type = 'radio';
+          input.name = 'cat';
+          input.value = c;
+          const span = document.createElement('span');
+          span.textContent = c;
+          label.appendChild(input);
+          label.appendChild(span);
+          cats.appendChild(label);
+        });
+        updateSite();
       }).catch(function (e) {
         site.innerHTML = '';
         site.add(new Option('読めませんでした', ''));
+        cats.innerHTML = '';
         WebApp.show(e.message, true);
       });
 
@@ -73,25 +127,51 @@
           : (n ? n + '枚選んでいます。' : '') + NOTE;
       });
 
+      function isPdf(file) {
+        return file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+      }
+
       btn.addEventListener('click', function () {
         const files = Array.prototype.slice.call(fileInput.files);
         const who = document.getElementById('who').value.trim();
-        if (!who || !site.value || !files.length) {
-          WebApp.show('名前・現場・写真を選んでください', true);
+        const cat = category();
+        if (!who || !site.value || !cat || !files.length) {
+          WebApp.show('名前・現場・区分・写真を選んでください', true);
+          return;
+        }
+        if (!day.value) {
+          WebApp.show('作業日（撮った日）を選んでください', true);
+          return;
+        }
+        if (day.value > localToday()) {
+          WebApp.show('作業日が先の日になっています。撮った日を選んでください', true);
           return;
         }
         if (files.length > MAX_FILES) {
           WebApp.show('1回に送れるのは ' + MAX_FILES + '枚までです（いま ' + files.length + '枚）。分けて送ってください', true);
           return;
         }
-        sendAll(files, who, site.value);
+        if (cat !== DOC && files.some(isPdf)) {
+          WebApp.show('PDF は区分「' + DOC + '」で送ってください', true);
+          return;
+        }
+        sendAll(files, { who: who, siteId: site.value, category: cat, workDate: day.value, memo: document.getElementById('memo').value.trim() });
       });
+
+      /** 1つのファイルを送る形にする：写真は縮めて小さい画像も作る。PDF はそのまま。 */
+      function prepare(file) {
+        if (isPdf(file)) {
+          if (file.size > MAX_PDF) return Promise.reject(new Error('PDF が大きすぎます（5MB まで）'));
+          return WebApp.readBase64(file).then(function (data) { return { data: data, thumb: '', type: 'application/pdf' }; });
+        }
+        return WebApp.shrinkImage(file, [1600, 240]).then(function (data) { return { data: data[0], thumb: data[1], type: 'image/jpeg' }; });
+      }
 
       /**
        * まず同じ写真の印（SHA-256）を作って、送り済みのものを聞き、それは送らずに飛ばす。
        * 残りを PARALLEL 枚ずつ並べて送る。1枚が送れなくても、ほかは続ける。
        */
-      function sendAll(files, who, siteId) {
+      function sendAll(files, form) {
         const total = files.length;
         const started = Date.now();
         let next = 0;
@@ -127,9 +207,10 @@
             return one();
           }
           progress();
-          return WebApp.shrinkImage(file, [1600, 240]).then(function (data) {
+          return prepare(file).then(function (p) {
             return WebApp.call('photo', 'upload', {
-              siteId: siteId, who: who, name: file.name, data: data[0], thumb: data[1], digest: digests[i], index: i + 1, total: total,
+              siteId: form.siteId, who: form.who, category: form.category, workDate: form.workDate, memo: form.memo,
+              name: file.name, data: p.data, thumb: p.thumb, type: p.type, digest: digests[i], index: i + 1, total: total,
             });
           }).then(function (r) {
             if (r.skipped) skipped.push({ name: file.name, reason: r.message });
@@ -154,7 +235,7 @@
         }).then(function () {
           const sec = Math.round((Date.now() - started) / 100) / 10;
           const parts = [];
-          if (done || !skipped.length) parts.push(siteId + ' に ' + done + '枚送りました');
+          if (done || !skipped.length) parts.push(form.siteId + ' の ' + form.workDate + '・' + form.category + ' に ' + done + '枚送りました');
           if (skipped.length) parts.push(done ? '送り済みの ' + skipped.length + '枚は飛ばしました' : '選んだ ' + skipped.length + '枚は、すべて送り済みでした（送っていません）');
           if (failed.length) parts.push(failed.length + '枚は送れませんでした。その写真だけを選び直して、もう一度送ってください');
           WebApp.show(parts.join('。') + '（' + sec + '秒）', failed.length > 0);
