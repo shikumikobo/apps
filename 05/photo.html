@@ -21,7 +21,13 @@
     #kind { margin: 4px 0 0; }
     .pickers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
     .pickers label { margin: 0; text-align: center; padding: 12px 4px; border: 1px solid #4f8a3a; border-radius: 10px; background: #fff; color: #2f5f22; font-weight: bold; cursor: pointer; }
+    .pickers label.has { background: #4f8a3a; color: #fff; }
     .pickers label.off { opacity: .5; pointer-events: none; }
+    .thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; margin-top: 10px; }
+    .thumb { position: relative; }
+    .thumb img, .thumb .pdf { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; background: #e4e7df; }
+    .thumb .pdf { display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: bold; color: #5d6458; }
+    .thumb .rm { position: absolute; top: -6px; right: -6px; width: 24px; height: 24px; margin: 0; padding: 0; border-radius: 12px; font-size: 14px; line-height: 24px; background: #a33; color: #fff; }
     .pickers input { display: none; }
     #pickedRow { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
     #clear { width: auto; margin: 0; padding: 6px 12px; font-size: 14px; background: #fff; color: #a33; border: 1px solid #d9b2ad; }
@@ -48,15 +54,18 @@
     <!-- 1つの入れ物で写真と PDF を受けると、Android ではファイルの画面が開いて写真を選びにくい（2026-10-21 人の確認）ので3つに分ける。
          カメラ：その場で撮る（1枚ずつ。続けて押せば足していく）。写真：ギャラリーから何枚も選ぶ。ファイル：PDF など -->
     <div class="pickers">
-      <label id="camLabel"><input id="cam" type="file" accept="image/*" capture="environment">カメラ</label>
-      <label id="galLabel"><input id="gallery" type="file" accept="image/*" multiple>写真</label>
-      <label id="docLabel"><input id="doc" type="file" accept="application/pdf,image/*" multiple>ファイル</label>
+      <label id="camLabel"><input id="cam" type="file" accept="image/*" capture="environment"><span>カメラ</span></label>
+      <label id="galLabel"><input id="gallery" type="file" accept="image/*" multiple><span>写真</span></label>
+      <label id="docLabel"><input id="doc" type="file" accept="application/pdf,image/*" multiple><span>ファイル</span></label>
     </div>
+    <!-- 選んだもの：小さい画像の一覧（× で1枚ずつ外せる）。使ったボタンは緑にして枚数を付ける（選んだことが分かるように。2026-10-21 人の確認） -->
+    <div id="thumbs" class="thumbs" hidden></div>
     <div id="pickedRow"><p id="picked" class="note"></p><button id="clear" type="button" hidden>選び直す</button></div>
-    <button id="send">送る</button>
+    <!-- 進み具合と知らせは「送る」の上に出す（下だとスマホで見えず、気づけない。2026-10-21 人の確認） -->
     <progress id="bar" max="1" value="0" hidden></progress>
     <p id="out" class="msg" hidden></p>
     <ul id="fails" hidden></ul>
+    <button id="send">送る</button>
   </main>
   <script>
     (function () {
@@ -73,7 +82,9 @@
       const btn = document.getElementById('send');
       const inputs = ['cam', 'gallery', 'doc'].map(function (id) { return document.getElementById(id); });
       const clearBtn = document.getElementById('clear');
-      let picked = []; // 選んだ写真・ファイル（3つのボタンで選んだものを足していく）
+      const SOURCES = { cam: 'カメラ', gallery: '写真', doc: 'ファイル' };
+      const thumbs = document.getElementById('thumbs');
+      let picked = []; // 選んだもの {file, from, url}（3つのボタンで選んだものを足していく）
       const bar = document.getElementById('bar');
       const fails = document.getElementById('fails');
       const toList = document.getElementById('toList');
@@ -134,28 +145,67 @@
         WebApp.show(e.message, true);
       });
 
-      /** 選んだ枚数と、選び直すボタン。 */
+      /** 選んだ枚数・小さい画像の一覧・ボタンの枚数と色・選び直すボタン。 */
       function showPicked() {
         const n = picked.length;
-        const pdfs = picked.filter(isPdf).length;
+        const pdfs = picked.filter(function (p) { return isPdf(p.file); }).length;
         document.getElementById('picked').textContent = n > MAX_FILES
-          ? n + '枚選んでいます。1回に送れるのは ' + MAX_FILES + '枚までです。選び直してください'
+          ? n + '枚選んでいます。1回に送れるのは ' + MAX_FILES + '枚までです。× で外してください'
           : n ? n + '枚選んでいます' + (pdfs ? '（PDF ' + pdfs + '）' : '') + '。続けて足せます' : NOTE;
         clearBtn.hidden = !n;
+        Object.keys(SOURCES).forEach(function (from) {
+          const count = picked.filter(function (p) { return p.from === from; }).length;
+          const label = document.getElementById(from).parentNode;
+          label.querySelector('span').textContent = SOURCES[from] + (count ? ' ✓' + count : '');
+          label.classList.toggle('has', count > 0);
+        });
+        thumbs.innerHTML = '';
+        thumbs.hidden = !n;
+        picked.forEach(function (p) {
+          const box = document.createElement('div');
+          box.className = 'thumb';
+          box.title = p.file.name;
+          if (p.url) {
+            const img = document.createElement('img');
+            img.src = p.url;
+            img.alt = p.file.name;
+            box.appendChild(img);
+          } else {
+            const doc = document.createElement('div');
+            doc.className = 'pdf';
+            doc.textContent = 'PDF';
+            box.appendChild(doc);
+          }
+          const rm = document.createElement('button');
+          rm.type = 'button';
+          rm.className = 'rm';
+          rm.textContent = '×';
+          rm.setAttribute('aria-label', p.file.name + ' を外す');
+          rm.disabled = btn.disabled;
+          rm.addEventListener('click', function () { unpick([p]); });
+          box.appendChild(rm);
+          thumbs.appendChild(box);
+        });
+      }
+
+      /** 選んだものから外す（小さい画像の URL も返す）。 */
+      function unpick(list) {
+        list.forEach(function (p) { if (p.url) URL.revokeObjectURL(p.url); });
+        picked = picked.filter(function (p) { return list.indexOf(p) < 0; });
+        showPicked();
       }
 
       // 選んだものは足していく（カメラで1枚ずつ撮っても、まとめて送れる）。同じ入れ物でもう一度選べるように、値は空に戻す
       inputs.forEach(function (input) {
         input.addEventListener('change', function () {
-          picked = picked.concat(Array.prototype.slice.call(input.files));
+          Array.prototype.slice.call(input.files).forEach(function (file) {
+            picked.push({ file: file, from: input.id, url: isPdf(file) ? '' : URL.createObjectURL(file) });
+          });
           input.value = '';
           showPicked();
         });
       });
-      clearBtn.addEventListener('click', function () {
-        picked = [];
-        showPicked();
-      });
+      clearBtn.addEventListener('click', function () { unpick(picked.slice()); });
 
       function setPicking(on) {
         inputs.forEach(function (input) {
@@ -163,6 +213,7 @@
           input.parentNode.classList.toggle('off', !on);
         });
         clearBtn.disabled = !on;
+        showPicked(); // × のボタンも、送っている間は押せないようにする
       }
 
       function isPdf(file) {
@@ -170,7 +221,7 @@
       }
 
       btn.addEventListener('click', function () {
-        const files = picked.slice();
+        const files = picked.map(function (p) { return p.file; });
         const who = document.getElementById('who').value.trim();
         const cat = category();
         if (!who || !site.value || !cat || !files.length) {
@@ -225,6 +276,7 @@
         bar.max = total;
         bar.value = 0;
         WebApp.show('送り済みの写真がないか、確かめています…');
+        bar.scrollIntoView({ block: 'center', behavior: 'smooth' }); // 押したら、進み具合が見えるところへ
 
         /** 「3/10枚目を送っています…」：終わった枚数＋1 枚目（いくつか並べて送っているが、終わる順に数える）。 */
         function progress() {
@@ -284,9 +336,8 @@
           });
           fails.hidden = !(skipped.length || failed.length);
           // 送れなかったものだけを残す（そのまま「送る」をもう一度押せる）
-          const failedNames = failed.map(function (f) { return f.file; });
-          picked = files.filter(function (f) { return failedNames.indexOf(f) >= 0; });
-          showPicked();
+          const failedFiles = failed.map(function (f) { return f.file; });
+          unpick(picked.filter(function (p) { return failedFiles.indexOf(p.file) < 0; }));
           btn.disabled = false;
           setPicking(true);
         });
