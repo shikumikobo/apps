@@ -1,0 +1,11 @@
+/* Web アプリの画面の共通の見た目（スマホの縦の画面・大きめの文字）。build.py が portfolio/site/shared/ にコピーする */
+body { margin: 0; font: 18px/1.6 -apple-system, "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif; background: #f6f7f4; color: #22261f; }
+main { max-width: 520px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 22px; margin: 8px 0 16px; }
+label { display: block; font-weight: bold; margin: 16px 0 6px; }
+input, select, textarea, button { font: inherit; width: 100%; box-sizing: border-box; padding: 12px; border: 1px solid #c9cec3; border-radius: 10px; background: #fff; color: inherit; }
+button { background: #4f8a3a; color: #fff; border: none; font-weight: bold; margin-top: 20px; }
+button:disabled { background: #9bb08f; }
+.msg { padding: 12px; border-radius: 10px; background: #e7f1e1; margin-top: 16px; }
+.msg.err { background: #fbe3e1; }
+.note { font-size: 14px; color: #5d6458; }
