@@ -19,6 +19,12 @@
     .choices input:checked + span { background: #4f8a3a; border-color: #4f8a3a; color: #fff; font-weight: bold; }
     .choices input:focus-visible + span { outline: 3px solid #2f63b8; }
     #kind { margin: 4px 0 0; }
+    .pickers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .pickers label { margin: 0; text-align: center; padding: 12px 4px; border: 1px solid #4f8a3a; border-radius: 10px; background: #fff; color: #2f5f22; font-weight: bold; cursor: pointer; }
+    .pickers label.off { opacity: .5; pointer-events: none; }
+    .pickers input { display: none; }
+    #pickedRow { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    #clear { width: auto; margin: 0; padding: 6px 12px; font-size: 14px; background: #fff; color: #a33; border: 1px solid #d9b2ad; }
   </style>
 </head>
 <body>
@@ -38,9 +44,15 @@
     <div id="cats" class="choices" role="radiogroup" aria-label="区分"><p class="note">読んでいます…</p></div>
     <label for="memo">メモ（なくてもよい。レポートの写真の下に出ます）</label>
     <input id="memo" maxlength="100" placeholder="浴室の入口の段差">
-    <label for="file">写真（20枚まで）</label>
-    <input id="file" type="file" accept="image/*,application/pdf" multiple>
-    <p id="picked" class="note"></p>
+    <label>写真・書類（20枚まで。何回かに分けて足せます）</label>
+    <!-- 1つの入れ物で写真と PDF を受けると、Android ではファイルの画面が開いて写真を選びにくい（2026-10-21 人の確認）ので3つに分ける。
+         カメラ：その場で撮る（1枚ずつ。続けて押せば足していく）。写真：ギャラリーから何枚も選ぶ。ファイル：PDF など -->
+    <div class="pickers">
+      <label id="camLabel"><input id="cam" type="file" accept="image/*" capture="environment">カメラ</label>
+      <label id="galLabel"><input id="gallery" type="file" accept="image/*" multiple>写真</label>
+      <label id="docLabel"><input id="doc" type="file" accept="application/pdf,image/*" multiple>ファイル</label>
+    </div>
+    <div id="pickedRow"><p id="picked" class="note"></p><button id="clear" type="button" hidden>選び直す</button></div>
     <button id="send">送る</button>
     <progress id="bar" max="1" value="0" hidden></progress>
     <p id="out" class="msg" hidden></p>
@@ -59,13 +71,15 @@
       const day = document.getElementById('day');
       const cats = document.getElementById('cats');
       const btn = document.getElementById('send');
-      const fileInput = document.getElementById('file');
+      const inputs = ['cam', 'gallery', 'doc'].map(function (id) { return document.getElementById(id); });
+      const clearBtn = document.getElementById('clear');
+      let picked = []; // 選んだ写真・ファイル（3つのボタンで選んだものを足していく）
       const bar = document.getElementById('bar');
       const fails = document.getElementById('fails');
       const toList = document.getElementById('toList');
       const kind = document.getElementById('kind');
       let sites = [];
-      document.getElementById('picked').textContent = NOTE;
+      showPicked();
       if (!WebApp.ready()) return;
       WebApp.remember('who');
 
@@ -86,8 +100,8 @@
       updateSite();
 
       function category() {
-        const picked = cats.querySelector('input:checked');
-        return picked ? picked.value : '';
+        const checked = cats.querySelector('input:checked');
+        return checked ? checked.value : '';
       }
 
       WebApp.call('photo', 'sites').then(function (r) {
@@ -120,19 +134,43 @@
         WebApp.show(e.message, true);
       });
 
-      fileInput.addEventListener('change', function () {
-        const n = fileInput.files.length;
+      /** 選んだ枚数と、選び直すボタン。 */
+      function showPicked() {
+        const n = picked.length;
+        const pdfs = picked.filter(isPdf).length;
         document.getElementById('picked').textContent = n > MAX_FILES
           ? n + '枚選んでいます。1回に送れるのは ' + MAX_FILES + '枚までです。選び直してください'
-          : (n ? n + '枚選んでいます。' : '') + NOTE;
+          : n ? n + '枚選んでいます' + (pdfs ? '（PDF ' + pdfs + '）' : '') + '。続けて足せます' : NOTE;
+        clearBtn.hidden = !n;
+      }
+
+      // 選んだものは足していく（カメラで1枚ずつ撮っても、まとめて送れる）。同じ入れ物でもう一度選べるように、値は空に戻す
+      inputs.forEach(function (input) {
+        input.addEventListener('change', function () {
+          picked = picked.concat(Array.prototype.slice.call(input.files));
+          input.value = '';
+          showPicked();
+        });
       });
+      clearBtn.addEventListener('click', function () {
+        picked = [];
+        showPicked();
+      });
+
+      function setPicking(on) {
+        inputs.forEach(function (input) {
+          input.disabled = !on;
+          input.parentNode.classList.toggle('off', !on);
+        });
+        clearBtn.disabled = !on;
+      }
 
       function isPdf(file) {
         return file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
       }
 
       btn.addEventListener('click', function () {
-        const files = Array.prototype.slice.call(fileInput.files);
+        const files = picked.slice();
         const who = document.getElementById('who').value.trim();
         const cat = category();
         if (!who || !site.value || !cat || !files.length) {
@@ -180,7 +218,7 @@
         const failed = [];
         let digests = [];
         btn.disabled = true;
-        fileInput.disabled = true;
+        setPicking(false);
         fails.hidden = true;
         fails.innerHTML = '';
         bar.hidden = false;
@@ -216,7 +254,7 @@
             if (r.skipped) skipped.push({ name: file.name, reason: r.message });
             else done++;
           }).catch(function (e) {
-            failed.push({ name: file.name, reason: e.message });
+            failed.push({ name: file.name, reason: e.message, file: file });
           }).then(function () {
             progress();
             return one();
@@ -245,12 +283,12 @@
             fails.appendChild(li);
           });
           fails.hidden = !(skipped.length || failed.length);
-          if (!failed.length) {
-            fileInput.value = '';
-            document.getElementById('picked').textContent = NOTE;
-          }
+          // 送れなかったものだけを残す（そのまま「送る」をもう一度押せる）
+          const failedNames = failed.map(function (f) { return f.file; });
+          picked = files.filter(function (f) { return failedNames.indexOf(f) >= 0; });
+          showPicked();
           btn.disabled = false;
-          fileInput.disabled = false;
+          setPicking(true);
         });
       }
     })();
