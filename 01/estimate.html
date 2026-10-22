@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <!-- URL の合言葉を、ほかのサイトへ渡さない -->
+  <meta name="referrer" content="no-referrer">
+  <title>概算見積</title>
+  <link rel="stylesheet" href="../shared/webapp.css">
+  <script src="../shared/webapp.js"></script>
+  <style>
+    :root { --main: #4f8a3a; }
+    .band { background: var(--main); color: #fff; padding: 12px 16px; font-weight: bold; font-size: 17px; }
+    .band span { display: block; max-width: 520px; margin: 0 auto; }
+    button { background: var(--main); }
+    .step { font-size: 14px; color: #5d6458; margin: 8px 0 0; }
+    .opts { display: grid; gap: 10px; margin-top: 8px; }
+    .opt { margin: 0; text-align: left; background: #fff; color: inherit; border: 2px solid #c9cec3; font-weight: bold; padding: 14px 16px; }
+    .opt small { display: block; font-weight: normal; font-size: 14px; color: #5d6458; }
+    .opt.on { border-color: var(--main); box-shadow: inset 0 0 0 1px var(--main); }
+    .opt.on::after { content: '✓ 選んでいます'; display: block; font-size: 14px; color: var(--main); }
+    .sub { background: #fff; color: var(--main); border: 1px solid var(--main); }
+    .back { width: auto; margin: 12px 0 0; padding: 6px 12px; font-size: 15px; font-weight: normal; background: none; color: #2f63b8; border: none; }
+    .price { font-size: 40px; font-weight: bold; text-align: center; margin: 12px 0 0; line-height: 1.3; }
+    .price small { font-size: 18px; }
+    .lines { list-style: none; padding: 0; margin: 12px 0 0; font-size: 16px; }
+    .lines li { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid #e1e4dc; padding: 6px 0; }
+    .lines li span:last-child { white-space: nowrap; }
+    .warn { background: #fff7e0; border-radius: 10px; padding: 12px; margin-top: 12px; font-size: 15px; }
+    .check { display: flex; gap: 10px; align-items: flex-start; font-weight: normal; }
+    .check input { width: 24px; height: 24px; flex: none; margin: 2px 0 0; }
+    details { margin-top: 8px; font-size: 14px; color: #3d4339; }
+    .opt-label { font-weight: normal; font-size: 14px; color: #5d6458; }
+    .tel { display: block; text-align: center; font-size: 20px; font-weight: bold; margin-top: 12px; color: var(--main); }
+  </style>
+</head>
+<body>
+  <!-- 01 概算見積（WEB）：お客さんがスマホで開く画面。処理は GAS の rough（01_rough-estimate/src/rough.js）。
+       工事の種類 → 大きさ → グレード → 追加の工事 → 金額の幅（名前は聞かない）→ 内訳のメール／現地調査の申し込み（hearing.md の 2-2・2-3）。
+       URL：estimate.html?s=<受け口>&k=<合言葉>[&src=flyer][&r=<概算ID>（内訳のメールの「申し込む」から）] -->
+  <div class="band"><span id="company">概算見積</span></div>
+  <main>
+    <section id="pickView">
+      <p id="step" class="step"></p>
+      <h1 id="question">読んでいます…</h1>
+      <div id="opts" class="opts"></div>
+      <button id="next" hidden>次へ</button>
+      <button id="backBtn" class="back" type="button" hidden>← 戻る</button>
+    </section>
+
+    <section id="resultView" hidden>
+      <p class="step" id="resultType"></p>
+      <h1>概算の金額</h1>
+      <p class="price"><span id="range"></span><small>（税込）</small></p>
+      <ul id="lines" class="lines"></ul>
+      <p class="warn" id="note"></p>
+      <button id="toMail">内訳をメールで受け取る</button>
+      <button id="toApply">現地調査を申し込む（無料）</button>
+      <button id="again" class="back" type="button">← はじめから選び直す</button>
+    </section>
+
+    <section id="formView" hidden>
+      <h1 id="formTitle"></h1>
+      <p id="formSummary" class="note"></p>
+      <label for="name">お名前</label>
+      <input id="name" autocomplete="name" maxlength="50" placeholder="山田 太郎">
+      <div data-apply>
+        <label for="kana">フリガナ <span class="opt-label">（なくてもよい）</span></label>
+        <input id="kana" maxlength="50" placeholder="ヤマダ タロウ">
+      </div>
+      <label for="email">メールアドレス</label>
+      <input id="email" type="email" autocomplete="email" inputmode="email" maxlength="100" placeholder="taro@example.jp">
+      <label for="tel">電話番号 <span class="opt-label" id="telOpt">（なくてもよい）</span></label>
+      <input id="tel" type="tel" autocomplete="tel" inputmode="tel" maxlength="20" placeholder="090-1234-5678">
+      <div data-apply>
+        <label for="address">工事の場所のご住所</label>
+        <input id="address" autocomplete="street-address" maxlength="100" placeholder="〇〇市〇〇町1-2-3">
+        <label for="wish">ご希望の日時 <span class="opt-label">（なくてもよい）</span></label>
+        <input id="wish" maxlength="200" placeholder="平日の午前、土曜なら午後">
+        <label for="memo">ご相談 <span class="opt-label">（なくてもよい）</span></label>
+        <textarea id="memo" rows="3" maxlength="500" placeholder="気になっていること"></textarea>
+      </div>
+      <label class="check"><input id="consent" type="checkbox"><span>「個人情報の取り扱い」に同意します</span></label>
+      <details id="privacy"><summary>個人情報の取り扱い</summary><p id="privacyText"></p></details>
+      <p id="out" class="msg" hidden></p>
+      <button id="send">送る</button>
+      <button id="formBack" class="back" type="button">← 金額の画面に戻る</button>
+    </section>
+
+    <section id="doneView" hidden>
+      <h1 id="doneTitle"></h1>
+      <p id="doneText"></p>
+      <p class="warn" id="doneNote"></p>
+      <button id="doneApply" hidden>現地調査を申し込む（無料）</button>
+      <button id="doneAgain" class="back" type="button">← はじめから選び直す</button>
+    </section>
+
+    <p id="fail" class="msg err" hidden></p>
+    <a id="telLink" class="tel" hidden></a>
+  </main>
+  <script>
+    (function () {
+      const $ = function (id) { return document.getElementById(id); };
+      const views = ['pickView', 'resultView', 'formView', 'doneView'];
+      let menu = null; // 会社・工事の種類ごとの問い（roughMenu_）
+      let type = null; // 選んでいる工事の種類
+      let steps = []; // 問いの並び（type.questions）
+      let index = -1; // 今の問い（-1 は工事の種類）
+      let chosen = {}; // 問いの名前 → 選んだ単価IDの配列
+      let result = null; // 金額の幅（roughEstimate_・roughFind_）
+      let mode = ''; // mail か apply
+      let busy = false;
+
+      function show(view) {
+        views.forEach(function (v) { $(v).hidden = v !== view; });
+        $('fail').hidden = true;
+        window.scrollTo(0, 0);
+      }
+
+      /** 送れなかったとき：理由と、電話の案内（hearing.md の 8-1）。 */
+      function fail(message) {
+        $('fail').hidden = false;
+        $('fail').textContent = message;
+        const tel = menu && menu.tel;
+        if (tel && message.indexOf(tel) < 0) {
+          $('fail').textContent += '　お電話でもご相談いただけます。';
+        }
+        if (tel) {
+          $('telLink').hidden = false;
+          $('telLink').textContent = '☎ ' + tel;
+          $('telLink').href = 'tel:' + tel.replace(/[^\d+]/g, '');
+        }
+      }
+
+      function optButton(label, note, on, onClick) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'opt' + (on ? ' on' : '');
+        b.textContent = label;
+        if (note) {
+          const s = document.createElement('small');
+          s.textContent = note;
+          b.appendChild(s);
+        }
+        b.addEventListener('click', onClick);
+        return b;
+      }
+
+      // ---- 1問ずつ選ぶ ----
+
+      function render() {
+        show('pickView');
+        const opts = $('opts');
+        opts.innerHTML = '';
+        $('next').hidden = true;
+        $('backBtn').hidden = index < 0;
+        if (index < 0) {
+          $('step').textContent = '1 / ' + (1 + (type ? steps.length : 3));
+          $('question').textContent = 'どの工事ですか？';
+          menu.types.forEach(function (t) {
+            opts.appendChild(optButton(t.name, '', type && type.name === t.name, function () {
+              if (!type || type.name !== t.name) chosen = {};
+              type = t;
+              steps = t.questions;
+              index = 0;
+              render();
+            }));
+          });
+          return;
+        }
+        const q = steps[index];
+        $('step').textContent = (index + 2) + ' / ' + (steps.length + 1) + '　' + type.name;
+        $('question').textContent = q.multi ? '追加の工事はありますか？（いくつでも）' : questionText(q.name);
+        const picked = chosen[q.name] || [];
+        q.options.forEach(function (o) {
+          opts.appendChild(optButton(o.label, o.description, picked.indexOf(o.id) >= 0, function () {
+            if (q.multi) {
+              const at = picked.indexOf(o.id);
+              if (at >= 0) picked.splice(at, 1); else picked.push(o.id);
+              chosen[q.name] = picked;
+              render();
+            } else {
+              chosen[q.name] = [o.id];
+              forward();
+            }
+          }));
+        });
+        if (q.multi) {
+          $('next').hidden = false;
+          $('next').textContent = picked.length ? '金額を見る' : '追加はない（金額を見る）';
+        }
+      }
+
+      function questionText(name) {
+        return { 大きさ: '広さ・大きさは？', グレード: 'グレードは？' }[name] || name + 'は？';
+      }
+
+      function forward() {
+        if (index + 1 < steps.length) {
+          index++;
+          render();
+        } else {
+          estimate();
+        }
+      }
+
+      function estimate() {
+        if (busy) return;
+        busy = true;
+        $('next').disabled = true;
+        const ids = [];
+        steps.forEach(function (q) { (chosen[q.name] || []).forEach(function (id) { ids.push(id); }); });
+        WebApp.call('rough', 'estimate', { workType: type.name, choices: ids, source: WebApp.param('src') })
+          .then(showResult)
+          .catch(function (e) { fail(e.message); })
+          .finally(function () { busy = false; $('next').disabled = false; });
+      }
+
+      // ---- 金額の幅 ----
+
+      function showResult(r) {
+        result = r;
+        show('resultView');
+        $('resultType').textContent = r.workType + '（概算番号 ' + r.roughId + '）';
+        $('range').textContent = r.range;
+        const lines = $('lines');
+        lines.innerHTML = '';
+        r.lines.forEach(function (l) {
+          const li = document.createElement('li');
+          const a = document.createElement('span');
+          const b = document.createElement('span');
+          a.textContent = l.question + '：' + l.option;
+          b.textContent = l.range;
+          li.appendChild(a);
+          li.appendChild(b);
+          lines.appendChild(li);
+        });
+        $('note').textContent = menu.note;
+      }
+
+      // ---- 内訳のメール・現地調査の申し込み ----
+
+      function openForm(kind) {
+        mode = kind;
+        show('formView');
+        const apply = kind === 'apply';
+        $('formTitle').textContent = apply ? '現地調査を申し込む' : '内訳をメールで受け取る';
+        $('formSummary').textContent = result.workType + '　' + result.range + '（税込）' +
+          (apply ? '　担当者から日時のご相談のお電話をします。' : '　選んだものとそれぞれの金額を、メールでお送りします。');
+        document.querySelectorAll('[data-apply]').forEach(function (el) { el.hidden = !apply; });
+        $('telOpt').hidden = apply;
+        $('send').textContent = apply ? '申し込む' : 'メールで受け取る';
+        $('out').hidden = true;
+      }
+
+      function send() {
+        if (busy) return;
+        const apply = mode === 'apply';
+        const payload = {
+          roughId: result.roughId, name: $('name').value, email: $('email').value, tel: $('tel').value,
+          consent: $('consent').checked,
+        };
+        if (apply) {
+          payload.kana = $('kana').value;
+          payload.address = $('address').value;
+          payload.wish = $('wish').value;
+          payload.memo = $('memo').value;
+        }
+        // 先に画面で確かめる（同じことを GAS でも確かめる）
+        const missing = !payload.name.trim() ? 'お名前を入れてください'
+          : !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email.trim()) ? 'メールアドレスを確かめてください'
+            : apply && !payload.tel.trim() ? '電話番号を入れてください'
+              : apply && !payload.address.trim() ? '工事の場所のご住所を入れてください'
+                : !payload.consent ? '「個人情報の取り扱い」をお読みのうえ、同意のチェックを入れてください' : '';
+        if (missing) {
+          WebApp.show(missing, true);
+          return;
+        }
+        busy = true;
+        $('send').disabled = true;
+        WebApp.show('送っています…');
+        WebApp.call('rough', apply ? 'apply' : 'mail', payload).then(function (r) {
+          show('doneView');
+          if (apply) {
+            $('doneTitle').textContent = 'お申し込みを受け付けました';
+            $('doneText').textContent = '受付番号 ' + r.inquiryId + '。担当者から2営業日以内に、日時のご相談のお電話をします。控えを ' +
+              payload.email.trim() + ' にお送りしました。';
+            $('doneApply').hidden = true;
+          } else {
+            $('doneTitle').textContent = '内訳をお送りしました';
+            $('doneText').textContent = r.email + ' に、概算の内訳をお送りしました。届かないときは、迷惑メールのフォルダもご覧ください。';
+            $('doneApply').hidden = false;
+          }
+          $('doneNote').textContent = menu.note;
+        }).catch(function (e) {
+          $('out').hidden = true;
+          fail(e.message);
+        }).finally(function () {
+          busy = false;
+          $('send').disabled = false;
+        });
+      }
+
+      function privacy() {
+        const company = menu.company || '当社';
+        const box = $('privacyText');
+        box.innerHTML = '';
+        box.appendChild(document.createTextNode(company + 'は、お預かりしたお名前・ご連絡先・ご住所を、概算見積の内訳のお送り、' +
+          '現地調査とお見積りのご連絡、工事に関するご案内のためにだけ使います。法令にもとづく場合を除き、ご本人の同意なく第三者に渡しません。' +
+          'ご自分の情報の確認・訂正・削除のご希望は、' + (menu.tel ? '電話（' + menu.tel + '）' : 'お電話') + 'でお知らせください。'));
+        if (menu.privacyUrl) {
+          const a = document.createElement('a');
+          a.href = menu.privacyUrl;
+          a.target = '_blank';
+          a.rel = 'noopener';
+          a.textContent = '　くわしくはこちら';
+          box.appendChild(a);
+        }
+      }
+
+      function restart() {
+        type = null;
+        steps = [];
+        chosen = {};
+        index = -1;
+        result = null;
+        $('lines').innerHTML = '';
+        render();
+      }
+
+      // ---- はじめ ----
+
+      $('backBtn').addEventListener('click', function () { index--; render(); });
+      $('next').addEventListener('click', forward);
+      $('toMail').addEventListener('click', function () { openForm('mail'); });
+      $('toApply').addEventListener('click', function () { openForm('apply'); });
+      $('doneApply').addEventListener('click', function () { openForm('apply'); });
+      $('again').addEventListener('click', restart);
+      $('doneAgain').addEventListener('click', restart);
+      $('formBack').addEventListener('click', function () { show('resultView'); });
+      $('send').addEventListener('click', send);
+
+      if (!WebApp.ready()) {
+        show('formView'); // 知らせの欄（out）を見せる
+        $('formView').querySelectorAll('h1, label, input, textarea, details, button, [data-apply]').forEach(function (el) { el.hidden = true; });
+        return;
+      }
+      WebApp.call('rough', 'menu').then(function (m) {
+        menu = m;
+        document.documentElement.style.setProperty('--main', m.color);
+        if (m.company) {
+          $('company').textContent = m.company + '　概算見積';
+          document.title = m.company + '　概算見積';
+        }
+        privacy();
+        const roughId = WebApp.param('r');
+        if (!roughId) {
+          render();
+          return;
+        }
+        // 内訳のメールの「現地調査を申し込む」から開いたとき
+        return WebApp.call('rough', 'find', { roughId: roughId }).then(function (r) {
+          showResult(r);
+          openForm('apply');
+        }).catch(function (e) {
+          render();
+          fail(e.message);
+        });
+      }).catch(function (e) {
+        $('question').textContent = '概算見積';
+        fail(e.message);
+      });
+    })();
+  </script>
+</body>
+</html>

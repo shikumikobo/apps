@@ -1,5 +1,6 @@
 /* Web アプリの画面の共通の見た目（スマホの縦の画面・大きめの文字）。build.py が portfolio/site/shared/ にコピーする */
-body { margin: 0; font: 18px/1.6 -apple-system, "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif; background: #f6f7f4; color: #22261f; }
+body { margin: 0; font-size: 18px; line-height: 1.6; background: #f6f7f4; color: #22261f; }
+body { font-family: 'BIZ UDGothic', -apple-system, 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif; } /* フォントは build.py が ledger.json の fonts から書く */
 main { max-width: 520px; margin: 0 auto; padding: 16px; }
 h1 { font-size: 22px; margin: 8px 0 16px; }
 label { display: block; font-weight: bold; margin: 16px 0 6px; }
